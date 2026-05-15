@@ -29,7 +29,8 @@ Pi Rust Client 是一个轻量级的 Rust RPC 客户端，用于与 Pi coding ag
 | `chat <message>` | 单次消息对话 |
 | `interactive` | 完整 REPL 模式 |
 | `state` | 获取会话状态 |
-| `models` | 列出可用模型 |
+| `models` | 列出可用模型 (从 RPC) |
+| `model-picker` | OpenClaw 风格交互式模型选择器 |
 | `stats` | 获取会话统计 |
 | `bash <cmd>` | 执行 bash 命令 |
 | `demo` | 运行完整演示 |
