@@ -15,6 +15,144 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn secret_input_literal_resolve() {
+        let input = SecretInput::from_literal("test-key-123");
+        let resolved = input.resolve().unwrap();
+        assert_eq!(resolved, "test-key-123");
+    }
+
+    #[test]
+    fn secret_input_env_resolve_success() {
+        std::env::set_var("TEST_API_KEY", "secret-value");
+        let input = SecretInput::from_env("TEST_API_KEY");
+        let resolved = input.resolve().unwrap();
+        assert_eq!(resolved, "secret-value");
+        std::env::remove_var("TEST_API_KEY");
+    }
+
+    #[test]
+    fn secret_input_env_resolve_missing() {
+        std::env::remove_var("MISSING_KEY");
+        let input = SecretInput::from_env("MISSING_KEY");
+        let result = input.resolve();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("MISSING_KEY"));
+    }
+
+    #[test]
+    fn secret_input_unknown_source() {
+        let input = SecretInput::Ref(SecretRef {
+            source: "unknown".to_string(),
+            id: "test".to_string(),
+        });
+        let result = input.resolve();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Unknown secret source"));
+    }
+
+    #[test]
+    fn secret_input_serialize_literal() {
+        let input = SecretInput::from_literal("test-value");
+        let json = serde_json::to_string(&input).unwrap();
+        assert_eq!(json, "\"test-value\"");
+    }
+
+    #[test]
+    fn secret_input_serialize_ref() {
+        let input = SecretInput::from_env("API_KEY");
+        let json = serde_json::to_string(&input).unwrap();
+        assert!(json.contains("\"source\":\"env\""));
+        assert!(json.contains("\"id\":\"API_KEY\""));
+    }
+
+    #[test]
+    fn secret_input_deserialize_literal() {
+        let json = "\"literal-key\"";
+        let input: SecretInput = serde_json::from_str(json).unwrap();
+        match input {
+            SecretInput::Literal(v) => assert_eq!(v, "literal-key"),
+            SecretInput::Ref(_) => panic!("Expected Literal"),
+        }
+    }
+
+    #[test]
+    fn secret_input_deserialize_ref() {
+        let json = "{\"source\":\"env\",\"id\":\"API_KEY\"}";
+        let input: SecretInput = serde_json::from_str(json).unwrap();
+        match input {
+            SecretInput::Literal(_) => panic!("Expected Ref"),
+            SecretInput::Ref(r) => {
+                assert_eq!(r.source, "env");
+                assert_eq!(r.id, "API_KEY");
+            }
+        }
+    }
+
+    #[test]
+    fn model_preset_management() {
+        let mut cfg = PiConfig::default();
+
+        // Add preset
+        cfg.set_model_preset(ModelPreset {
+            name: "test".to_string(),
+            model_id: "test-model".to_string(),
+            description: Some("Test model".to_string()),
+        });
+
+        assert!(cfg.get_model_preset("test").is_some());
+        assert_eq!(cfg.get_model_preset("test").unwrap().model_id, "test-model");
+
+        // Remove preset
+        cfg.model_presets.retain(|m| m.name != "test");
+        assert!(cfg.get_model_preset("test").is_none());
+    }
+
+    #[test]
+    fn profile_management() {
+        let mut cfg = PiConfig::default();
+
+        // Add profile
+        cfg.set_profile(ProviderProfile {
+            name: "custom".to_string(),
+            provider: "openai".to_string(),
+            api: None,
+            base_url: None,
+            api_key: None,
+            default_model: None,
+            context_window: None,
+            max_tokens: None,
+            description: Some("Custom provider".to_string()),
+            models: vec![],
+        });
+
+        assert!(cfg.get_profile("custom").is_some());
+
+        // Set as default
+        cfg.set_default_profile("custom").unwrap();
+        assert_eq!(cfg.default_profile, "custom");
+    }
+
+    #[test]
+    fn set_default_profile_missing() {
+        let cfg = PiConfig::default();
+        let mut cfg = cfg;
+        let result = cfg.set_default_profile("nonexistent");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not found"));
+    }
+
+    #[test]
+    fn config_mode_default() {
+        let cfg = PiConfig::default();
+        assert_eq!(cfg.mode, "merge");
+    }
+}
+
 // ============================================================================
 // OpenClaw-style Secret Reference Types
 // ============================================================================
