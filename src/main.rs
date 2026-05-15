@@ -22,7 +22,7 @@ mod config;
 mod rpc_client;
 mod types;
 
-use anyhow::Result;
+use anyhow::{Result, Context};
 use config::{PiConfig, ProviderProfile, ModelPreset, print_config, config_path};
 use rpc_client::{PiClient, PiClientConfig};
 use std::io::{self, BufRead};
@@ -127,6 +127,9 @@ fn main() -> Result<()> {
         "model" => {
             run_model(&args[2..])?;
         }
+        "model-picker" => {
+            run_model_picker(config)?;
+        }
         "chat" => {
             if args.len() < 3 {
                 // Interactive chat mode
@@ -153,7 +156,8 @@ fn print_usage() {
     println!("Commands:");
     println!("  prompt <message>    Send a prompt and wait for response");
     println!("  state               Get current session state");
-    println!("  models              List available models");
+    println!("  models              List available models (from RPC)");
+    println!("  model-picker        Interactive model selector (OpenClaw style)");
     println!("  stats               Get session statistics");
     println!("  bash <cmd>          Execute a bash command");
     println!("  commands            List available commands");
@@ -794,6 +798,73 @@ fn run_model(args: &[String]) -> Result<()> {
             eprintln!("Unknown model command: {}", args[0]);
             eprintln!("Commands: add, remove, use");
         }
+    }
+
+    Ok(())
+}
+
+/// Interactive model picker - select model from RPC-discovered list
+fn run_model_picker(config: PiClientConfig) -> Result<()> {
+    println!("Fetching available models from Pi RPC...");
+    println!();
+
+    let client = PiClient::new(config)?;
+    let models = client.get_available_models()?;
+
+    if models.is_empty() {
+        println!("No models available.");
+        return Ok(());
+    }
+
+    // Display models in numbered list
+    println!("Available Models (from RPC):");
+    println!("{:<4} {:<25} {:<30} {:<15}", "#", "Provider::Model", "Name", "Context");
+    println!("{}", "-".repeat(75));
+
+    for (i, model) in models.iter().enumerate() {
+        let model_key = format!("{}::{}", model.provider, model.id);
+        let context = format!("{}k", model.context_window / 1000);
+        println!("{:<4} {:<25} {:<30} {:<15}", i + 1, model_key, model.name, context);
+    }
+
+    println!();
+    println!("Select model (1-{}): ", models.len());
+
+    // Read user input
+    let stdin = io::stdin();
+    let input = stdin.lock().lines().next()
+        .context("Failed to read input")?
+        .context("Input error")?;
+
+    let idx = input.trim().parse::<usize>()
+        .context("Please enter a valid number")?;
+
+    if idx < 1 || idx > models.len() {
+        anyhow::bail!("Invalid selection: {}. Please choose 1-{}", idx, models.len());
+    }
+
+    let selected = &models[idx - 1];
+    println!();
+    println!("Switching to: {}::{}", selected.provider, selected.id);
+    println!("  Name: {}", selected.name);
+    println!("  Context Window: {} tokens", selected.context_window);
+    if selected.reasoning {
+        println!("  Reasoning: enabled");
+    }
+    println!();
+
+    // Switch model via RPC
+    client.set_model(&selected.provider, &selected.id)?;
+    println!("✓ Model switched successfully!");
+
+    // Update local config
+    let mut cfg = PiConfig::load()?;
+    if let Some(profile) = cfg.current_profile() {
+        let mut updated = profile.clone();
+        updated.default_model = Some(selected.id.clone());
+        cfg.set_profile(updated);
+        cfg.save()?;
+        println!("Config updated: default_model = {}", selected.id);
     }
 
     Ok(())
