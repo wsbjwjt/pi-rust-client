@@ -578,12 +578,19 @@ fn run_profile(args: &[String]) -> Result<()> {
                 println!("    Base URL: {}", url);
             }
             if let Some(key) = &profile.api_key {
-                let masked = if key.len() > 10 {
-                    format!("{}...{}", &key[..8], &key[key.len()-4..])
-                } else {
-                    "***".to_string()
-                };
-                println!("    API Key: {}", masked);
+                match key {
+                    config::SecretInput::Literal(value) => {
+                        let masked = if value.len() > 10 {
+                            format!("{}...{}", &value[..8], &value[value.len()-4..])
+                        } else {
+                            "***".to_string()
+                        };
+                        println!("    API Key: {}", masked);
+                    }
+                    config::SecretInput::Ref(ref_val) => {
+                        println!("    API Key: ${{{}}}", ref_val.id);
+                    }
+                }
             }
             if let Some(desc) = &profile.description {
                 println!("    Description: {}", desc);
@@ -605,7 +612,10 @@ fn run_profile(args: &[String]) -> Result<()> {
                 base_url: if args.len() > 3 { Some(args[3].clone()) } else { None },
                 api_key: None,
                 default_model: None,
+                context_window: None,
+                max_tokens: None,
                 description: if args.len() > 4 { Some(args[4].clone()) } else { None },
+                models: vec![],
             };
             cfg.set_profile(profile);
             cfg.save()?;
@@ -657,7 +667,14 @@ fn run_use_profile(name: &str) -> Result<()> {
             println!("  set PI_BASE_URL={}", url);
         }
         if let Some(key) = &profile.api_key {
-            println!("  set PI_API_KEY={}", key);
+            match key {
+                config::SecretInput::Literal(value) => {
+                    println!("  set PI_API_KEY={}", value);
+                }
+                config::SecretInput::Ref(ref_val) => {
+                    println!("  set PI_API_KEY=${{{}}}", ref_val.id);
+                }
+            }
         }
     }
 
