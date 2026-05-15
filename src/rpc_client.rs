@@ -234,6 +234,29 @@ impl PiClient {
         anyhow::bail!("No models response")
     }
 
+    /// Set/switch model via RPC
+    pub fn set_model(&self, provider: &str, model_id: &str) -> Result<()> {
+        self.send(RpcCommand::SetModel(SetModelCommand::new(provider.to_string(), model_id.to_string())))?;
+        while let Ok(ev) = self.events_rx.recv() {
+            match ev {
+                RpcEvent::Response(resp) => {
+                    if resp.command == "set_model" {
+                        if resp.success {
+                            return Ok(());
+                        } else {
+                            anyhow::bail!("set_model failed: {}", resp.error.unwrap_or_else(|| "unknown error".to_string()));
+                        }
+                    }
+                }
+                RpcEvent::ExtensionUiRequest { id, method, .. } => {
+                    self.handle_ui(&id, &method)?;
+                }
+                _ => {}
+            }
+        }
+        anyhow::bail!("No set_model response")
+    }
+
     /// Get session stats
     pub fn get_session_stats(&self) -> Result<SessionStats> {
         self.send(RpcCommand::GetSessionStats(GetSessionStatsCommand::new()))?;
